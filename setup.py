@@ -59,13 +59,13 @@ entry_points = {
 
 
 setup(
-    name="rembg",
+    name="rembg_test",
     description="Remove image background",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/danielgatis/rembg",
-    author="Daniel Gatis",
-    author_email="danielgatis@gmail.com",
+    url="https://github.com/injet-zhou/rembg_test",
+    author="injet-zhou",
+    author_email="eugenechou97@gmail.com",
     classifiers=[
         "License :: OSI Approved :: MIT License",
         "Topic :: Scientific/Engineering",

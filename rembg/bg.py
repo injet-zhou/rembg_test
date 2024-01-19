@@ -16,6 +16,7 @@ from PIL.Image import Image as PILImage
 from pymatting.alpha.estimate_alpha_cf import estimate_alpha_cf
 from pymatting.foreground.estimate_foreground_ml import estimate_foreground_ml
 from pymatting.util.util import stack_images
+from pymatting.preconditioner import jacobi,ichol
 from scipy.ndimage import binary_erosion
 
 from .session_factory import new_session
@@ -37,6 +38,7 @@ def alpha_matting_cutout(
     foreground_threshold: int,
     background_threshold: int,
     erode_structure_size: int,
+    preconditioner,
 ) -> PILImage:
     """
     Perform alpha matting on an image using a given mask and threshold values.
@@ -51,6 +53,9 @@ def alpha_matting_cutout(
     """
     if img.mode == "RGBA" or img.mode == "CMYK":
         img = img.convert("RGB")
+    
+    if not preconditioner:
+        preconditioner = ichol
 
     img = np.asarray(img)
     mask = np.asarray(mask)
@@ -74,7 +79,7 @@ def alpha_matting_cutout(
     img_normalized = img / 255.0
     trimap_normalized = trimap / 255.0
 
-    alpha = estimate_alpha_cf(img_normalized, trimap_normalized)
+    alpha = estimate_alpha_cf(img_normalized, trimap_normalized, preconditioner=preconditioner)
     foreground = estimate_foreground_ml(img_normalized, alpha)
     cutout = stack_images(foreground, alpha)
 
@@ -248,6 +253,8 @@ def remove(
 
     putalpha = kwargs.pop("putalpha", False)
 
+    preconditioner = kwargs.pop("preconditioner", ichol)
+
     # Fix image orientation
     img = fix_image_orientation(img)
 
@@ -272,6 +279,7 @@ def remove(
                     alpha_matting_foreground_threshold,
                     alpha_matting_background_threshold,
                     alpha_matting_erode_size,
+                    preconditioner=preconditioner
                 )
             except ValueError:
                 if putalpha:
