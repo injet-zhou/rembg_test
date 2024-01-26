@@ -16,12 +16,13 @@ from PIL.Image import Image as PILImage
 from pymatting.alpha.estimate_alpha_cf import estimate_alpha_cf
 from pymatting.foreground.estimate_foreground_ml import estimate_foreground_ml
 from pymatting.util.util import stack_images
-from pymatting.preconditioner import jacobi,ichol
+from pymatting.preconditioner import jacobi, ichol
 from scipy.ndimage import binary_erosion
 
 from .session_factory import new_session
 from .sessions import sessions_class
 from .sessions.base import BaseSession
+from time import perf_counter
 
 kernel = getStructuringElement(MORPH_ELLIPSE, (3, 3))
 
@@ -32,6 +33,18 @@ class ReturnType(Enum):
     NDARRAY = 2
 
 
+def hook_ichol(
+    A,
+    discard_threshold=1e-4,
+    shifts=[1e-4, 1e-3, 1e-2, 0.1, 0.5, 1.0, 10.0, 100, 1e3, 1e4, 1e5],
+):
+    return ichol(
+        A,
+        discard_threshold=discard_threshold,
+        shifts=shifts,
+    )
+
+
 def alpha_matting_cutout(
     img: PILImage,
     mask: PILImage,
@@ -39,6 +52,7 @@ def alpha_matting_cutout(
     background_threshold: int,
     erode_structure_size: int,
     preconditioner,
+    epsilon,
 ) -> PILImage:
     """
     Perform alpha matting on an image using a given mask and threshold values.
@@ -53,9 +67,12 @@ def alpha_matting_cutout(
     """
     if img.mode == "RGBA" or img.mode == "CMYK":
         img = img.convert("RGB")
-    
+
     if not preconditioner:
         preconditioner = ichol
+
+    if not epsilon:
+        epsilon = 1e-7
 
     img = np.asarray(img)
     mask = np.asarray(mask)
@@ -79,8 +96,12 @@ def alpha_matting_cutout(
     img_normalized = img / 255.0
     trimap_normalized = trimap / 255.0
 
-    alpha = estimate_alpha_cf(img_normalized, trimap_normalized, preconditioner=preconditioner)
+    alpha_start = perf_counter()
+    alpha = estimate_alpha_cf(img_normalized, trimap_normalized, preconditioner=preconditioner, laplacian_kwargs=dict(epsilon=epsilon))
+    print(f"estimate alpha cost: {perf_counter() - alpha_start}")
+    foreground_start = perf_counter()
     foreground = estimate_foreground_ml(img_normalized, alpha)
+    print(f"estimate foreground cost: {perf_counter() - foreground_start}")
     cutout = stack_images(foreground, alpha)
 
     cutout = np.clip(cutout * 255, 0, 255).astype(np.uint8)
@@ -216,7 +237,7 @@ def remove(
     post_process_mask: bool = False,
     bgcolor: Optional[Tuple[int, int, int, int]] = None,
     *args: Optional[Any],
-    **kwargs: Optional[Any]
+    **kwargs: Optional[Any],
 ) -> Union[bytes, PILImage, np.ndarray]:
     """
     Remove the background from an input image.
@@ -253,7 +274,8 @@ def remove(
 
     putalpha = kwargs.pop("putalpha", False)
 
-    preconditioner = kwargs.pop("preconditioner", ichol)
+    preconditioner = kwargs.pop("preconditioner", None)
+    epsilon = kwargs.pop("epsilon", 1e-7)
 
     # Fix image orientation
     img = fix_image_orientation(img)
@@ -279,7 +301,8 @@ def remove(
                     alpha_matting_foreground_threshold,
                     alpha_matting_background_threshold,
                     alpha_matting_erode_size,
-                    preconditioner=preconditioner
+                    preconditioner=preconditioner,
+                    epsilon=epsilon,
                 )
             except ValueError:
                 if putalpha:
